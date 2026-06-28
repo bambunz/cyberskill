@@ -16,6 +16,12 @@ dev = [
     "pytest-mock>=3.12",
     "coverage[toml]",
 ]
+# Claude API agent integration
+claude = ["anthropic>=0.50"]
+# MCP server (connects to Claude Desktop / Claude Code)
+mcp = ["mcp[cli]>=1.0"]
+# All integrations
+all = ["cyberskill[claude,mcp]"]
 
 [project.scripts]
 cyberskill = "cyberskill.cli:cli"
