@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cyberskill"
+version = "0.1.0"
+description = "AI-powered cybersecurity skill with OWASP Top 10 coverage"
+requires-python = ">=3.11"
+dependencies = ["click>=8.1"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-mock>=3.12",
+    "coverage[toml]",
+]
+
+[project.scripts]
+cyberskill = "cyberskill.cli:cli"
+
+[project.entry-points."cyberskill.tools"]
+# Third-party tools declare themselves here. Example:
+# mytool = "mypackage.tools:MyTool"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cyberskill"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/cyberskill"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
