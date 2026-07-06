@@ -103,6 +103,27 @@ def scan(
     return json.dumps(result, indent=2)
 
 
+@mcp.tool()
+def chained_scan(target: str, timeout: int = 300, output: str = "markdown") -> str:
+    """Run a full multi-phase chained security assessment.
+
+    Findings from each phase automatically feed the next:
+      Phase 1 — nmap: discover ports, services, web/auth/DB endpoints
+      Phase 2 — nikto + ffuf: fingerprint web targets (CMS, tech stack, paths, logins)
+      Phase 3 — nuclei + gobuster: CMS/tech-specific vulnerability templates
+      Phase 4 — sqlmap + wfuzz + commix: SQLi / XSS / RFI / LFI / CMDi on param URLs
+      Phase 5 — hydra: brute-force SSH/FTP services and discovered login forms
+
+    Returns a prioritised finding list with exploit hints and attack surface summary.
+
+    Args:
+        target:  IP address, hostname, or URL.
+        timeout: Per-tool execution timeout in seconds (default 300).
+        output:  'markdown' (default, human-readable) or 'dict' (JSON-serialisable).
+    """
+    return _skill.chained_scan(target, timeout=timeout, output=output)
+
+
 # ---------------------------------------------------------------------------
 # Resources — expose static reference data
 # ---------------------------------------------------------------------------

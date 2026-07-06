@@ -8,11 +8,13 @@ from cyberskill.base import BaseTool
 from cyberskill.models import OWASPCategory
 from cyberskill.registry import registry
 
-_DIR_WORDLIST = "/usr/share/wordlists/dirb/common.txt"
+_DIR_WORDLIST       = "/usr/share/wordlists/dirb/common.txt"
 _TRAVERSAL_WORDLIST = "/usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt"
-_SQLI_WORDLIST = "/usr/share/seclists/Fuzzing/SQLi/Generic-SQLi.txt"
-_SSRF_WORDLIST = "/usr/share/seclists/Fuzzing/SSRF/SSRF-targets.txt"
-_AUTH_WORDLIST = "/usr/share/seclists/Passwords/probable-v2-top1575.txt"
+_SQLI_WORDLIST      = "/usr/share/seclists/Fuzzing/SQLi/Generic-SQLi.txt"
+_SSRF_WORDLIST      = "/usr/share/seclists/Fuzzing/SSRF/SSRF-targets.txt"
+_AUTH_WORDLIST      = "/usr/share/seclists/Passwords/probable-v2-top1575.txt"
+_XSS_WORDLIST       = "/usr/share/seclists/Fuzzing/XSS/XSS-Jhaddix.txt"
+_RFI_WORDLIST       = "/usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt"
 
 
 class WfuzzTool(BaseTool):
@@ -31,11 +33,13 @@ class WfuzzTool(BaseTool):
 
     # Wordlist presets keyed by mode
     _WORDLISTS: dict[str, str] = {
-        "dir": _DIR_WORDLIST,
+        "dir":       _DIR_WORDLIST,
         "traversal": _TRAVERSAL_WORDLIST,
-        "sqli": _SQLI_WORDLIST,
-        "ssrf": _SSRF_WORDLIST,
-        "auth": _AUTH_WORDLIST,
+        "sqli":      _SQLI_WORDLIST,
+        "ssrf":      _SSRF_WORDLIST,
+        "auth":      _AUTH_WORDLIST,
+        "xss":       _XSS_WORDLIST,
+        "rfi":       _RFI_WORDLIST,
     }
 
     def build_command(
@@ -55,7 +59,9 @@ class WfuzzTool(BaseTool):
         mode options:
           dir        — directory enumeration; FUZZ appended to target URL
           traversal  — LFI/path-traversal payloads; FUZZ appended to target URL
-          sqli       — SQL injection payloads; target must contain FUZZ
+          sqli       — SQL injection payloads; target must contain FUZZ or has ?param=
+          xss        — reflected XSS payloads; target must contain FUZZ or has ?param=
+          rfi        — remote file inclusion payloads; target must contain FUZZ
           ssrf       — SSRF probe URLs; target must contain FUZZ
           auth       — password fuzzing; target must contain FUZZ
           param      — generic param fuzzing; target must contain FUZZ
@@ -63,7 +69,12 @@ class WfuzzTool(BaseTool):
         wl = wordlist or self._WORDLISTS.get(mode, _DIR_WORDLIST)
 
         if "FUZZ" not in target:
-            url = target.rstrip("/") + "/FUZZ"
+            if mode in ("sqli", "xss", "rfi", "ssrf", "auth", "param") and "?" in target and "=" in target:
+                # Replace the first parameter value with FUZZ for injection modes
+                import re as _re
+                url = _re.sub(r"(=[^&]*)", "=FUZZ", target, count=1)
+            else:
+                url = target.rstrip("/") + "/FUZZ"
         else:
             url = target
 

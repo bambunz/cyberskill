@@ -7,6 +7,8 @@ from typing import Any
 from cyberskill.models import OWASPCategory, ScanReport, ToolResult
 from cyberskill.registry import registry
 from cyberskill.runner import ScanRunner
+from cyberskill.orchestrator import ChainingOrchestrator
+from cyberskill.report import build_report
 
 
 class CyberskillAI:
@@ -128,6 +130,64 @@ class CyberskillAI:
             target, tools=tools, categories=categories, timeout=timeout
         )
         return report.to_dict()
+
+    # ------------------------------------------------------------------ #
+    # Chained / cascaded scanning                                        #
+    # ------------------------------------------------------------------ #
+
+    def chained_scan(
+        self,
+        target: str,
+        *,
+        timeout: int = 300,
+        concurrency: int = 3,
+        output: str = "dict",
+    ) -> Any:
+        """Run a full chained assessment where each phase feeds into the next.
+
+        Phase order (each phase skipped if no relevant targets are found):
+          1. nmap          — discover open ports, services, web/auth/DB endpoints
+          2. nikto + ffuf  — fingerprint web targets: CMS, tech stack, paths, logins
+          3. nuclei + gobuster — targeted scan using CMS/tech tags from phase 2
+          4. sqlmap + wfuzz + commix — injection testing on discovered param URLs
+          5. hydra         — credential brute-force on SSH/FTP + HTTP login forms
+
+        Args:
+            target:      IP address, hostname, or URL.
+            timeout:     Per-tool execution timeout in seconds.
+            concurrency: Max concurrent tool executions within a phase.
+            output:      "dict" (default), "json", or "markdown".
+        """
+        report = asyncio.run(
+            self._async_chained_scan(target, timeout=timeout, concurrency=concurrency)
+        )
+        if output == "json":
+            return report.to_json()
+        if output == "markdown":
+            return report.to_markdown()
+        return report.to_dict()
+
+    async def async_chained_scan(
+        self,
+        target: str,
+        *,
+        timeout: int = 300,
+        concurrency: int = 3,
+        output: str = "dict",
+    ) -> Any:
+        """Async variant of :meth:`chained_scan`."""
+        report = await self._async_chained_scan(target, timeout=timeout, concurrency=concurrency)
+        if output == "json":
+            return report.to_json()
+        if output == "markdown":
+            return report.to_markdown()
+        return report.to_dict()
+
+    async def _async_chained_scan(self, target: str, *, timeout: int, concurrency: int):
+        import cyberskill.tools  # noqa: F401  ensures built-ins are registered
+        orch = ChainingOrchestrator(timeout=timeout, concurrency=concurrency)
+        scan_result = await orch.run(target)
+        return build_report(scan_result)
 
     # ------------------------------------------------------------------ #
     # Internal                                                             #

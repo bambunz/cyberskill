@@ -89,6 +89,40 @@ _TOOLS: list[dict] = [
             "required": ["target"],
         },
     },
+    {
+        "name": "chained_scan",
+        "description": (
+            "Run a full multi-phase chained security assessment where findings from "
+            "each phase automatically feed the next: "
+            "(1) nmap discovers ports/services → "
+            "(2) nikto+ffuf fingerprint web targets → "
+            "(3) nuclei runs CMS/tech-specific templates → "
+            "(4) sqlmap/wfuzz/commix test discovered parameter URLs for SQLi/XSS/RFI/LFI/CMDi → "
+            "(5) hydra tests SSH/FTP services and discovered login pages. "
+            "Returns a prioritised finding list with exploit hints and a Markdown report. "
+            "Prefer this over 'scan' for thorough assessments. "
+            "Always confirm authorisation before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "IP address, hostname, or URL to assess.",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Per-tool timeout in seconds (default 300).",
+                },
+                "output": {
+                    "type": "string",
+                    "enum": ["dict", "markdown"],
+                    "description": "Return format: 'dict' (default) or 'markdown' report.",
+                },
+            },
+            "required": ["target"],
+        },
+    },
 ]
 
 
@@ -114,6 +148,12 @@ def _dispatch(name: str, inputs: dict, skill: CyberskillAI) -> str:
             timeout=inputs.get("timeout", 300),
         )
         return json.dumps(result, indent=2)
+    if name == "chained_scan":
+        return skill.chained_scan(
+            inputs["target"],
+            timeout=inputs.get("timeout", 300),
+            output=inputs.get("output", "markdown"),
+        )
     raise ValueError(f"Unknown tool: {name!r}")
 
 
