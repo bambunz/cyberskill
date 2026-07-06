@@ -4,10 +4,21 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from typing import Any
+from urllib.parse import urlparse
 
 from cyberskill.base import BaseTool
 from cyberskill.models import OWASPCategory
 from cyberskill.registry import registry
+
+
+def _host_port(target: str) -> str:
+    """Convert a URL to host:port format that sslscan expects."""
+    p = urlparse(target)
+    if p.scheme in ("http", "https"):
+        host = p.hostname or target
+        port = p.port or (443 if p.scheme == "https" else 80)
+        return f"{host}:{port}"
+    return target
 
 _WEAK_CIPHERS = frozenset({"rc4", "des", "3des", "export", "null", "anon"})
 _WEAK_PROTOCOLS = frozenset({"sslv2", "sslv3", "tlsv1.0", "tlsv1.1"})
@@ -41,7 +52,7 @@ class SslscanTool(BaseTool):
             cmd.append(f"--starttls-{starttls}")
         if ipv4_only:
             cmd.append("--ipv4")
-        cmd.append(target)
+        cmd.append(_host_port(target))
         return cmd
 
     def _parse(self, stdout: str, stderr: str, returncode: int) -> dict[str, Any]:

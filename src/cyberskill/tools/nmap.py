@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from typing import Any
+from urllib.parse import urlparse
 
 from cyberskill.base import BaseTool
 from cyberskill.models import OWASPCategory
 from cyberskill.registry import registry
+
+
+def _host(target: str) -> str:
+    """Strip URL scheme/path — nmap only accepts hostnames or IPs."""
+    p = urlparse(target)
+    return p.hostname if p.scheme in ("http", "https") and p.hostname else target
 
 
 class NmapTool(BaseTool):
@@ -36,7 +43,7 @@ class NmapTool(BaseTool):
             cmd += ["-O", "--osscan-guess"]
         if scripts:
             cmd += ["--script", scripts]
-        cmd.append(target)
+        cmd.append(_host(target))
         return cmd
 
     def _parse(self, stdout: str, stderr: str, returncode: int) -> dict[str, Any]:

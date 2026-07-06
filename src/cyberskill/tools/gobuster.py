@@ -25,7 +25,6 @@ class GobusterTool(BaseTool):
         wordlist: str = _DEFAULT_WORDLIST,
         extensions: str = "php,html,js,txt,bak,zip",
         threads: int = 20,
-        status_codes: str = "200,204,301,302,307,401,403",
         follow_redirect: bool = False,
         **_: Any,
     ) -> list[str]:
@@ -41,7 +40,6 @@ class GobusterTool(BaseTool):
             "--no-error",
         ]
         if mode == "dir":
-            cmd += ["-s", status_codes]
             if extensions:
                 cmd += ["-x", extensions]
             if follow_redirect:

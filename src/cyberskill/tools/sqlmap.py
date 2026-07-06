@@ -71,14 +71,15 @@ class SqlmapTool(BaseTool):
             if m2:
                 injection_types.append(m2.group(1).strip())
 
-            # "[*] information_schema"
-            m3 = re.match(r"\[\*\]\s+(\S+)", line)
+            # "[*] information_schema"  — skip timestamp/action lines like "[*] starting @"
+            m3 = re.match(r"\[\*\]\s+(\w[\w_$]*)\s*$", line)
             if m3 and "available databases" not in line.lower():
                 val = m3.group(1)
-                if "." in val:
-                    tables.append(val)
-                else:
-                    databases.append(val)
+                if val.lower() not in {"starting", "ending", "shutting"}:
+                    if "." in val:
+                        tables.append(val)
+                    else:
+                        databases.append(val)
 
         return {
             "vulnerable": bool(vulnerable_params),

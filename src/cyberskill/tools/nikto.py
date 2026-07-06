@@ -3,10 +3,24 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from cyberskill.base import BaseTool
 from cyberskill.models import OWASPCategory
 from cyberskill.registry import registry
+
+
+def _parse_url(target: str, port: int, ssl: bool) -> tuple[str, int, bool]:
+    """Return (host, port, ssl) — extracts from URL scheme when given a full URL."""
+    p = urlparse(target)
+    if p.scheme in ("http", "https"):
+        host = p.hostname or target
+        if not port:
+            port = p.port or (443 if p.scheme == "https" else 80)
+        if not ssl:
+            ssl = p.scheme == "https"
+        return host, port, ssl
+    return target, port, ssl
 
 
 class NiktoTool(BaseTool):
@@ -33,7 +47,8 @@ class NiktoTool(BaseTool):
         tuning: nikto tuning options (e.g. '1' for interesting files,
                 '2' for misconfigurations, '4' for XSS, '9' for SQL injection)
         """
-        cmd = ["nikto", "-h", target, "-nointeractive", "-Format", "txt"]
+        host, port, ssl = _parse_url(target, port, ssl)
+        cmd = ["nikto", "-h", host, "-nointeractive", "-Format", "txt"]
         if port:
             cmd += ["-p", str(port)]
         if ssl:

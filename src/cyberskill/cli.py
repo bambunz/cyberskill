@@ -9,6 +9,45 @@ import click
 from cyberskill.skill import CyberskillAI
 
 
+def _render_report(report: dict) -> str:
+    """Render a simple human-readable summary from a basic scan report dict."""
+    lines: list[str] = []
+    results: list[dict] = report.get("results", [])
+    target = report.get("target", "unknown")
+    lines.append(f"\n{'='*60}")
+    lines.append(f"  SECURITY SCAN REPORT — {target}")
+    lines.append(f"{'='*60}\n")
+
+    issue_count = 0
+    for r in results:
+        tool = r.get("tool_name", "?")
+        structured = r.get("structured", {}) or {}
+        error = r.get("error")
+        if error:
+            lines.append(f"  [{tool}]  ERROR: {error}")
+            continue
+        issues = structured.get("issues") or structured.get("findings") or []
+        if isinstance(issues, list) and issues:
+            lines.append(f"  [{tool}]  {len(issues)} finding(s):")
+            for item in issues[:10]:
+                if isinstance(item, dict):
+                    detail = item.get("finding") or item.get("detail") or str(item)
+                else:
+                    detail = str(item)
+                lines.append(f"    • {detail}")
+            if len(issues) > 10:
+                lines.append(f"    … and {len(issues) - 10} more")
+            issue_count += len(issues)
+        else:
+            lines.append(f"  [{tool}]  No issues found")
+        lines.append("")
+
+    lines.append(f"{'='*60}")
+    lines.append(f"  Total issues: {issue_count}")
+    lines.append(f"{'='*60}\n")
+    return "\n".join(lines)
+
+
 @click.group()
 @click.version_option()
 def cli() -> None:
@@ -56,6 +95,14 @@ def cli() -> None:
     default=None,
     help="Write JSON report to a file instead of stdout.",
 )
+@click.option(
+    "--format", "-f",
+    "fmt",
+    type=click.Choice(["json", "report"], case_sensitive=False),
+    default="report",
+    show_default=True,
+    help="Output format: 'json' for raw JSON, 'report' for human-readable summary.",
+)
 def scan(
     target: str,
     tool: tuple[str, ...],
@@ -63,6 +110,7 @@ def scan(
     concurrency: int,
     timeout: int,
     output: str | None,
+    fmt: str,
 ) -> None:
     """Scan TARGET with selected tools or OWASP categories.
 
@@ -75,13 +123,22 @@ def scan(
         categories=list(category) or None,
         timeout=timeout,
     )
-    data = json.dumps(report, indent=2)
-    if output:
-        with open(output, "w") as fh:
-            fh.write(data)
-        click.echo(f"Report written to {output}", err=True)
+    if fmt == "report":
+        text = _render_report(report)
+        if output:
+            with open(output, "w") as fh:
+                fh.write(text)
+            click.echo(f"Report written to {output}", err=True)
+        else:
+            click.echo(text)
     else:
-        click.echo(data)
+        data = json.dumps(report, indent=2)
+        if output:
+            with open(output, "w") as fh:
+                fh.write(data)
+            click.echo(f"Report written to {output}", err=True)
+        else:
+            click.echo(data)
 
 
 @cli.command("list-tools")

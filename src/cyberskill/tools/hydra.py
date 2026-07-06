@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from cyberskill.base import BaseTool
 from cyberskill.models import OWASPCategory
 from cyberskill.registry import registry
+
+
+def _host(target: str) -> str:
+    """Strip URL scheme — hydra needs a bare hostname or IP."""
+    p = urlparse(target)
+    return p.hostname if p.scheme in ("http", "https") and p.hostname else target
 
 _DEFAULT_PASS_LIST = "/usr/share/wordlists/rockyou.txt"
 
@@ -55,10 +62,11 @@ class HydraTool(BaseTool):
         if port:
             cmd += ["-s", str(port)]
 
+        host = _host(target)
         if service in ("http-post-form", "http-get-form"):
-            cmd += [target, service, f"{http_form_path}:{http_form_params}"]
+            cmd += [host, service, f"{http_form_path}:{http_form_params}"]
         else:
-            cmd.append(f"{service}://{target}")
+            cmd.append(f"{service}://{host}")
 
         return cmd
 
