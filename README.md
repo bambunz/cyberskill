@@ -15,6 +15,10 @@ An AI-powered cybersecurity skill that wraps industry-standard security tools be
 - [Installation](#installation)
 - [CLI usage](#cli-usage)
 - [Python API](#python-api)
+- [Chained scanning](#chained-scanning)
+  - [How the phases work](#how-the-phases-work)
+  - [Python API](#chained-scan-python-api)
+  - [Report format](#report-format)
 - [Claude AI integration](#claude-ai-integration)
   - [Approach 1 — Claude API agent](#approach-1--claude-api-agent)
   - [Approach 2 — MCP server](#approach-2--mcp-server)
@@ -26,6 +30,7 @@ An AI-powered cybersecurity skill that wraps industry-standard security tools be
 ## Features
 
 - **10 built-in tools** covering every OWASP Top 10 category
+- **Chained scanning** — each phase's findings automatically configure the next tool (nmap → nikto/ffuf → nuclei → sqlmap/wfuzz/commix → hydra)
 - **Async execution** with configurable concurrency (`asyncio` + `Semaphore`)
 - **Structured output** — each tool parses its own stdout into a typed dict
 - **Plugin system** — third-party packages can register tools via Python entry-points
@@ -264,16 +269,148 @@ report.to_json(indent=2)   # JSON string
 
 ---
 
+## Chained scanning
+
+`chained_scan` is an intelligent multi-phase orchestrator. Rather than running all tools blindly in parallel, it runs them in dependency order and feeds each phase's findings into the next as precise configuration — so nuclei runs only WordPress templates when WordPress is detected, sqlmap only tests parameters that actually exist, and hydra targets only the login forms that nikto found.
+
+### How the phases work
+
+```
+Target (IP / hostname / URL)
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Phase 1 — Network recon                                       │
+│   nmap (-sV, all ports, OS detection)                         │
+│   Extracts → web targets · SSH/FTP/RDP services · DB ports   │
+└───────────────────────┬───────────────────────────────────────┘
+                        │ web targets
+                        ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Phase 2 — Web fingerprinting  (per web target, in parallel)  │
+│   nikto   → CMS (WordPress/Joomla/Drupal), server header,    │
+│             login paths (/wp-login.php), admin paths          │
+│   ffuf    → directory brute-force, additional paths           │
+│   sslscan → weak ciphers, expired certs  (HTTPS targets only) │
+│   Extracts → cms · technologies · login_paths · nuclei_tags  │
+└───────────────────────┬───────────────────────────────────────┘
+                        │ cms + tech tags + paths
+                        ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Phase 3 — Targeted vulnerability scan                         │
+│   nuclei   → runs ONLY templates matching detected tags       │
+│              e.g. -tags wordpress,apache,php,default-login    │
+│   gobuster → deeper path discovery                            │
+└───────────────────────┬───────────────────────────────────────┘
+                        │ param URLs (from target or nikto)
+                        ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Phase 4 — Injection testing  (only if param URLs found)       │
+│   sqlmap  → SQL injection (level 2, risk 2)                   │
+│   commix  → OS command injection                              │
+│   wfuzz   → SQLi payloads     (?id=FUZZ)                      │
+│             XSS payloads      (?q=FUZZ)                       │
+│             RFI payloads      (?page=FUZZ)                    │
+│             LFI/traversal     (/path/FUZZ)                    │
+└───────────────────────┬───────────────────────────────────────┘
+                        │ services + login pages
+                        ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Phase 5 — Auth / credential testing                           │
+│   hydra  → SSH, FTP, RDP, SMB  (from Phase 1 services)       │
+│            HTTP form brute-force (from Phase 2 login paths)   │
+└───────────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+              Prioritised finding report
+        (critical → high → medium → low → info)
+              with per-finding exploit hints
+```
+
+Phases are skipped gracefully when no relevant targets are found (e.g. if nmap finds no web ports, phases 2–4 are skipped). Missing tool binaries are also silently skipped.
+
+### Chained scan Python API
+
+```python
+from cyberskill.skill import CyberskillAI
+
+skill = CyberskillAI()
+
+# Scan a host — starts with nmap, chains through all phases
+report = skill.chained_scan("192.168.1.1")
+
+# Scan a URL directly — skips nmap, starts at Phase 2
+report = skill.chained_scan("http://192.168.1.1/app?id=1")
+
+# Get a human-readable Markdown report
+md = skill.chained_scan("192.168.1.1", output="markdown")
+print(md)
+
+# Async variant
+report = await skill.async_chained_scan("192.168.1.1", timeout=120)
+```
+
+### Report format
+
+```json
+{
+  "target": "192.168.1.1",
+  "timestamp": "2025-01-01T12:00:00+00:00",
+  "phases_run": ["phase1_recon", "phase2_web_fingerprint", "phase3_vuln_scan"],
+  "attack_surface": {
+    "web_targets": [{"url": "http://192.168.1.1", "port": 80, "ssl": false, "product": "nginx"}],
+    "auth_services": [{"host": "192.168.1.1", "port": 22, "service": "ssh"}],
+    "db_services":   [{"host": "192.168.1.1", "port": 3306, "service": "mysql"}],
+    "cms": "wordpress",
+    "technologies": ["apache", "php"],
+    "login_paths": ["/wp-login.php"],
+    "admin_paths":  ["/wp-admin/"]
+  },
+  "summary": {
+    "total_findings": 7,
+    "by_severity": {"critical": 1, "high": 2, "medium": 3, "low": 1},
+    "tools_run": ["commix", "ffuf", "nikto", "nmap", "nuclei", "sqlmap", "wfuzz"]
+  },
+  "findings": [
+    {
+      "severity": "critical",
+      "owasp": "A03:2021 – Injection",
+      "tool": "sqlmap",
+      "target": "http://192.168.1.1/app?id=1",
+      "title": "SQL injection in parameter(s): id",
+      "detail": "Injection types: boolean-based blind, time-based blind\nDatabases: dvwa, mysql",
+      "exploit_hints": [
+        {
+          "title": "Dump database with sqlmap",
+          "command": "sqlmap -u \"http://192.168.1.1/app?id=1\" --batch --dbs",
+          "reference": ""
+        },
+        {
+          "title": "Attempt OS shell",
+          "command": "sqlmap -u \"http://192.168.1.1/app?id=1\" --batch --os-shell",
+          "reference": ""
+        }
+      ]
+    }
+  ]
+}
+```
+
+The Markdown output (`output="markdown"`) renders the same data as a human-readable report with severity icons, tables, and fenced exploit command blocks — suitable for copy-paste into a pentest report.
+
+---
+
 ## Claude AI integration
 
-The package ships two ready-to-use Claude integrations in `examples/`. Both expose the same four operations as callable tools:
+The package ships two ready-to-use Claude integrations in `examples/`. Both expose the same five operations as callable tools:
 
 | Tool | Description |
 |------|-------------|
 | `list_tools` | List all registered tools and their OWASP coverage |
 | `list_categories` | List all OWASP Top 10 categories and their mapped tools |
 | `tool_info` | Get metadata for a single tool by name |
-| `scan` | Run tools against a target and return a structured JSON report |
+| `scan` | Run specific tools or categories against a target |
+| `chained_scan` | Full 5-phase chained assessment with per-finding exploit hints |
 
 ---
 
@@ -504,10 +641,13 @@ cyberskill/
 │   ├── __init__.py
 │   ├── base.py              # BaseTool ABC + async execution
 │   ├── cli.py               # Click CLI (cyberskill scan / list-tools / ...)
+│   ├── intel.py             # Intelligence extractors (nmap→WebTarget, nikto→WebIntel …)
 │   ├── models.py            # OWASPCategory, ToolResult, ScanReport
+│   ├── orchestrator.py      # ChainingOrchestrator — 5-phase chained runner
 │   ├── registry.py          # ToolRegistry + plugin discovery
+│   ├── report.py            # ChainedReport builder + Markdown renderer + ExploitHints
 │   ├── runner.py            # ScanRunner (async concurrency)
-│   ├── skill.py             # CyberskillAI facade (AI-friendly sync API)
+│   ├── skill.py             # CyberskillAI facade (scan + chained_scan)
 │   └── tools/
 │       ├── commix.py
 │       ├── ffuf.py
