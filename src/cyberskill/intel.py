@@ -53,11 +53,21 @@ class WebIntel:
 # Service classification sets
 # ---------------------------------------------------------------------------
 
-_HTTP_SVCS  = {"http", "http-alt", "http-proxy", "www", "webcache", "http-mgmt"}
-_HTTPS_SVCS = {"https", "https-alt", "ssl/http", "ssl/https", "ssl/http-proxy"}
+_HTTP_SVCS  = {"http", "http-alt", "http-proxy", "www", "webcache", "http-mgmt",
+               "http?", "ajp13", "jetty", "gunicorn"}
+_HTTPS_SVCS = {"https", "https-alt", "ssl/http", "ssl/https", "ssl/http-proxy",
+               "https?", "ssl/http?"}
 _AUTH_SVCS  = {"ssh", "ftp", "rdp", "smb", "microsoft-ds", "telnet", "vnc"}
 _DB_SVCS    = {"mysql", "postgresql", "ms-sql-s", "mssql", "oracle",
                "mongodb", "redis", "memcache", "cassandra"}
+
+# Ports commonly used for web even if nmap labels the service as unknown/tcpwrapped
+_COMMON_WEB_PORTS: frozenset[int] = frozenset({
+    80, 443, 8080, 8443, 8000, 8001, 8008, 8888,
+    9090, 9000, 9001, 3000, 3001, 4000, 4200, 5000,
+    7080, 7443, 8180, 8181, 8280, 8300, 10443,
+    3128, 6080, 8009, 8444, 8765, 9200, 9300,
+})
 
 # ---------------------------------------------------------------------------
 # nmap extraction
@@ -80,12 +90,31 @@ def extract_from_nmap(
                 continue
             svc     = p.get("service", "").lower()
             portnum = int(p.get("port", 0))
-            product = p.get("product", "")
+            product = p.get("product", "").lower()
             version = p.get("version", "")
+            scripts = p.get("scripts", {})
 
-            is_ssl = svc in _HTTPS_SVCS or (svc in _HTTP_SVCS and portnum in (443, 8443, 4443))
+            # Detect SSL: explicit HTTPS service names, high-SSL ports, or ssl-cert script ran
+            is_ssl = (
+                svc in _HTTPS_SVCS
+                or portnum in (443, 8443, 4443, 10443, 7443)
+                or "ssl-cert" in scripts
+            )
 
-            if svc in _HTTP_SVCS or svc in _HTTPS_SVCS:
+            # Classify as web if: known HTTP/HTTPS service name, common web port number,
+            # http-headers/http-title script ran, or product contains http/nginx/apache
+            is_web = (
+                svc in _HTTP_SVCS
+                or svc in _HTTPS_SVCS
+                or portnum in _COMMON_WEB_PORTS
+                or "http-headers" in scripts
+                or "http-title" in scripts
+                or any(w in product for w in ("http", "nginx", "apache", "iis", "lighttpd",
+                                               "tomcat", "jetty", "node", "gunicorn", "flask",
+                                               "django", "spring", "express"))
+            )
+
+            if is_web:
                 scheme = "https" if is_ssl else "http"
                 default_port = 443 if is_ssl else 80
                 url = (
@@ -95,7 +124,7 @@ def extract_from_nmap(
                 )
                 web.append(WebTarget(
                     url=url, host=addr, port=portnum, ssl=is_ssl,
-                    product=product, version=version,
+                    product=p.get("product", ""), version=version,
                 ))
 
             if svc in _AUTH_SVCS:

@@ -141,6 +141,76 @@ def scan(
             click.echo(data)
 
 
+@cli.command("chained-scan")
+@click.argument("target")
+@click.option(
+    "--timeout",
+    default=300,
+    show_default=True,
+    help="Per-tool timeout in seconds.",
+)
+@click.option(
+    "--concurrency",
+    default=3,
+    show_default=True,
+    help="Maximum concurrent tool executions within a phase.",
+)
+@click.option(
+    "--output", "-o",
+    type=click.Path(),
+    default=None,
+    help="Write report to a file instead of stdout.",
+)
+@click.option(
+    "--format", "-f",
+    "fmt",
+    type=click.Choice(["markdown", "json"], case_sensitive=False),
+    default="markdown",
+    show_default=True,
+    help="Output format: 'markdown' (default) or 'json'.",
+)
+def chained_scan(
+    target: str,
+    timeout: int,
+    concurrency: int,
+    output: str | None,
+    fmt: str,
+) -> None:
+    """Full chained multi-phase security assessment.
+
+    \b
+    Each phase feeds its findings into the next:
+      Phase 1 — nmap: discover all open ports and services
+      Phase 2 — nikto + ffuf + sslscan: fingerprint every web endpoint
+      Phase 3 — nuclei + gobuster: CMS/tech-specific vuln templates
+      Phase 4 — sqlmap + wfuzz + commix: injection testing on param URLs
+      Phase 5 — hydra: brute-force auth services and login forms
+
+    Progress is printed to stderr so you can pipe the report to a file.
+    """
+    def _progress(msg: str) -> None:
+        click.echo(msg, err=True)
+
+    skill = CyberskillAI()
+    _progress(f"Starting chained scan on {target}")
+    result = skill.chained_scan(
+        target,
+        timeout=timeout,
+        concurrency=concurrency,
+        output=fmt,
+        progress_cb=_progress,
+    )
+    if output:
+        with open(output, "w") as fh:
+            fh.write(result if isinstance(result, str) else json.dumps(result, indent=2))
+        click.echo(f"Report written to {output}", err=True)
+    else:
+        if isinstance(result, str):
+            click.echo(result)
+        else:
+            click.echo(json.dumps(result, indent=2))
+
+
 @cli.command("list-tools")
 def list_tools() -> None:
     """List all registered tools with availability and OWASP coverage."""

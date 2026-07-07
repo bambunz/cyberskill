@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Callable
 
 from cyberskill.models import OWASPCategory, ScanReport, ToolResult
 from cyberskill.registry import registry
@@ -142,6 +142,7 @@ class CyberskillAI:
         timeout: int = 300,
         concurrency: int = 3,
         output: str = "dict",
+        progress_cb: Callable[[str], None] | None = None,
     ) -> Any:
         """Run a full chained assessment where each phase feeds into the next.
 
@@ -159,7 +160,9 @@ class CyberskillAI:
             output:      "dict" (default), "json", or "markdown".
         """
         report = asyncio.run(
-            self._async_chained_scan(target, timeout=timeout, concurrency=concurrency)
+            self._async_chained_scan(
+                target, timeout=timeout, concurrency=concurrency, progress_cb=progress_cb
+            )
         )
         if output == "json":
             return report.to_json()
@@ -174,18 +177,30 @@ class CyberskillAI:
         timeout: int = 300,
         concurrency: int = 3,
         output: str = "dict",
+        progress_cb: Callable[[str], None] | None = None,
     ) -> Any:
         """Async variant of :meth:`chained_scan`."""
-        report = await self._async_chained_scan(target, timeout=timeout, concurrency=concurrency)
+        report = await self._async_chained_scan(
+            target, timeout=timeout, concurrency=concurrency, progress_cb=progress_cb
+        )
         if output == "json":
             return report.to_json()
         if output == "markdown":
             return report.to_markdown()
         return report.to_dict()
 
-    async def _async_chained_scan(self, target: str, *, timeout: int, concurrency: int):
+    async def _async_chained_scan(
+        self,
+        target: str,
+        *,
+        timeout: int,
+        concurrency: int,
+        progress_cb: Callable[[str], None] | None = None,
+    ):
         import cyberskill.tools  # noqa: F401  ensures built-ins are registered
-        orch = ChainingOrchestrator(timeout=timeout, concurrency=concurrency)
+        orch = ChainingOrchestrator(
+            timeout=timeout, concurrency=concurrency, progress_cb=progress_cb
+        )
         scan_result = await orch.run(target)
         return build_report(scan_result)
 
